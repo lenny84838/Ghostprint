@@ -1,0 +1,89 @@
+name: Build Ghostprint APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build Ghostprint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Find newest Ghostprint ZIP
+        shell: bash
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name 'Ghostprint-Android-*.zip' | sort -V | tail -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No Ghostprint ZIP found."
+            exit 1
+          fi
+
+          echo "Using: $ZIP_FILE"
+          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
+
+      - name: Extract Ghostprint
+        shell: bash
+        run: |
+          rm -rf build-src
+          mkdir -p build-src
+          unzip -q "$ZIP_FILE" -d build-src
+
+      - name: Find Android project
+        shell: bash
+        run: |
+          PROJECT_DIR=$(find build-src -type f -name 'settings.gradle.kts' -printf '%h\n' | head -n 1)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR=$(find build-src -type f -name 'settings.gradle' -printf '%h\n' | head -n 1)
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android project not found."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Build Ghostprint APK
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+          gradle :app:assembleDebug --stacktrace --warning-mode all
+
+      - name: Find generated APK
+        shell: bash
+        run: |
+          APK_PATH=$(find "$PROJECT_DIR/app/build/outputs/apk" -type f -name '*.apk' | head -n 1)
+
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          echo "APK_PATH=$APK_PATH" >> "$GITHUB_ENV"
+
+      - name: Upload Ghostprint APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghostprint-APK
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 30
